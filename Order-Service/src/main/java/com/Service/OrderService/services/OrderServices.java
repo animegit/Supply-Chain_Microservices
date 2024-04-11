@@ -7,6 +7,8 @@ import com.Service.OrderService.dto.OrderRequest;
 import com.Service.OrderService.models.Order;
 import com.Service.OrderService.models.OrderLineItems;
 import com.Service.OrderService.repository.OrderRepository;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import jakarta.transaction.Transactional;
 import lombok.AllArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -22,7 +24,10 @@ import java.util.UUID;
 public class OrderServices {
  private OrderRepository orderRepository;
  private WebClient.Builder webClientBuilder;
-    public void placeorder(OrderRequest orderRequest) throws IllegalAccessException {
+private  final ObservationRegistry observationRegistry;
+
+
+    public String placeorder(OrderRequest orderRequest) throws IllegalAccessException {
         Order order=new Order();
         order.setOrderNumber(UUID.randomUUID().toString());
         List<OrderLineItems> orderLineItemsList=orderRequest.getOrderLineRequestList().stream().map(this::maptoDto).toList();
@@ -30,20 +35,26 @@ public class OrderServices {
 
         order.setOrderLineItemsList(orderLineItemsList);
 
-
         List<String> skuCodes=order.getOrderLineItemsList().stream().map(OrderLineItems::getSkuCode).toList();
-        InventoryResponse[] inventoryResponsesArray=webClientBuilder.build().get().uri("http://inventory-service/api/inventory",uriBuilder -> uriBuilder.queryParam("skuCode",skuCodes).
-                build()).retrieve().bodyToMono(InventoryResponse[].class).block();
+        Observation inventoryobservation=Observation.createNotStarted("inventory-service-lookup",this.observationRegistry);
+        inventoryobservation.lowCardinalityKeyValue("call","inventory-service");
+        return inventoryobservation.observe(()->{
 
-        boolean allProductsInStock = Arrays.stream(inventoryResponsesArray).allMatch(InventoryResponse::isInStock);
 
-        if(allProductsInStock){
-            orderRepository.save(order);
-        }
-        else {
-            throw new IllegalAccessException("Product is not in Stock!!!!");
-        }
+            InventoryResponse[] inventoryResponsesArray = webClientBuilder.build().get().uri("http://inventory-service/api/inventory", uriBuilder -> uriBuilder.queryParam("skuCode", skuCodes).
+                    build()).retrieve().bodyToMono(InventoryResponse[].class).block();
 
+            boolean allProductsInStock = Arrays.stream(inventoryResponsesArray).allMatch(InventoryResponse::isInStock);
+
+            if (allProductsInStock) {
+                orderRepository.save(order);
+                return "Order Placed";
+            } else{
+
+                return "No Item in stock";
+            }
+
+        });
 
 
 
