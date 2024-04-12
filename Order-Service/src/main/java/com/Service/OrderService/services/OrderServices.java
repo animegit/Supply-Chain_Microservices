@@ -4,6 +4,7 @@ package com.Service.OrderService.services;
 import com.Service.OrderService.dto.InventoryResponse;
 import com.Service.OrderService.dto.OrderLineRequest;
 import com.Service.OrderService.dto.OrderRequest;
+import com.Service.OrderService.event.OrderPlaceEvent;
 import com.Service.OrderService.models.Order;
 import com.Service.OrderService.models.OrderLineItems;
 import com.Service.OrderService.repository.OrderRepository;
@@ -11,6 +12,7 @@ import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import jakarta.transaction.Transactional;
 import lombok.AllArgsConstructor;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -25,6 +27,7 @@ public class OrderServices {
  private OrderRepository orderRepository;
  private WebClient.Builder webClientBuilder;
 private  final ObservationRegistry observationRegistry;
+private KafkaTemplate<String,OrderPlaceEvent> kafkaTemplate;
 
 
     public String placeorder(OrderRequest orderRequest) throws IllegalAccessException {
@@ -48,6 +51,7 @@ private  final ObservationRegistry observationRegistry;
 
             if (allProductsInStock) {
                 orderRepository.save(order);
+                kafkaTemplate.send("notificationTopic",new OrderPlaceEvent(order.getOrderNumber()));
                 return "Order Placed";
             } else{
 
